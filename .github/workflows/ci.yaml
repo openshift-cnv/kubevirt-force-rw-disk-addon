@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  IMAGE_REGISTRY: quay.io/openshift-cnv
+  GO_VERSION: "1.26"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.0
+
+      - name: Build webhook image
+        run: podman build -f Dockerfile.webhook .
+
+      - name: Build sidecar image
+        run: podman build -f Dockerfile.init .
+
+  push-latest:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to quay.io
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push webhook image
+        run: |
+          podman build -f Dockerfile.webhook -t ${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:latest .
+          podman push ${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:latest
+
+      - name: Build and push sidecar image
+        run: |
+          podman build -f Dockerfile.init -t ${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:latest .
+          podman push ${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:latest

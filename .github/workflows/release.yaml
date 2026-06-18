@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  IMAGE_REGISTRY: quay.io/openshift-cnv
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Extract tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to quay.io
+        uses: docker/login-action@v4
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push webhook image
+        run: |
+          podman build -f Dockerfile.webhook -t ${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:${{ steps.tag.outputs.version }} .
+          podman push ${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:${{ steps.tag.outputs.version }}
+
+      - name: Build and push sidecar image
+        run: |
+          podman build -f Dockerfile.init -t ${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:${{ steps.tag.outputs.version }} .
+          podman push ${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:${{ steps.tag.outputs.version }}
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Generate OpenShift release YAML
+        run: |
+          kustomize build manifests/overlays/openshift/ | \
+            sed "s|force-rw-disk-webhook:latest|${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:${{ steps.tag.outputs.version }}|g; \
+                 s|force-rw-disk-sidecar:latest|${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:${{ steps.tag.outputs.version }}|g" \
+            > force-rw-disk-addon-openshift.yaml
+
+      - name: Generate Kubernetes release YAML
+        run: |
+          kustomize build manifests/overlays/kubernetes/ | \
+            sed "s|force-rw-disk-webhook:latest|${{ env.IMAGE_REGISTRY }}/force-rw-disk-webhook:${{ steps.tag.outputs.version }}|g; \
+                 s|force-rw-disk-sidecar:latest|${{ env.IMAGE_REGISTRY }}/force-rw-disk-sidecar:${{ steps.tag.outputs.version }}|g" \
+            > force-rw-disk-addon-kubernetes.yaml
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            force-rw-disk-addon-openshift.yaml
+            force-rw-disk-addon-kubernetes.yaml

@@ -1,0 +1,21 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: force-rw-disk-webhook-selfsigned
+  namespace: kubevirt-force-rw-disk-addon
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: force-rw-disk-webhook-tls
+  namespace: kubevirt-force-rw-disk-addon
+spec:
+  secretName: force-rw-disk-webhook-tls
+  dnsNames:
+    - force-rw-disk-webhook.kubevirt-force-rw-disk-addon.svc
+    - force-rw-disk-webhook.kubevirt-force-rw-disk-addon.svc.cluster.local
+  issuerRef:
+    name: force-rw-disk-webhook-selfsigned
+    kind: Issuer

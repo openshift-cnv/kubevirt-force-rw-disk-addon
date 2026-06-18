@@ -1,0 +1,8 @@
+FROM gcc:14 AS builder
+
+WORKDIR /build
+COPY lib/blkro_override.c .
+RUN gcc -shared -fPIC -o blkro_override.so blkro_override.c -ldl
+
+FROM busybox:1.37
+COPY --from=builder /build/blkro_override.so /usr/lib64/blkro_override.so
